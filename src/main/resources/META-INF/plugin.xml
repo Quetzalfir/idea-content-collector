@@ -1,0 +1,37 @@
+<idea-plugin>
+    <id>com.quetzalfir.contentcollector</id>
+    <name>Content Collector</name>
+    <vendor email="quetzalfir2@gmail.com">Fernando Valencia</vendor>
+
+    <description><![CDATA[
+    Añade las acciones <b>Get Content</b> y <b>Get Content (Advanced)</b>
+    para copiar el contenido de archivos/carpetas al portapapeles.
+  ]]></description>
+
+    <!-- Declarar el Notification Group de forma moderna -->
+    <extensions defaultExtensionNs="com.intellij">
+        <notificationGroup
+                id="contentcollector"
+                displayType="BALLOON"
+                isLogByDefault="false"/>
+    </extensions>
+
+    <actions>
+        <action id="contentcollector.GetContent"
+                class="com.quetzalfir.contentcollector.GetContentAction"
+                text="Get Content"
+                description="Dump selected files">
+            <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
+            <add-to-group group-id="EditorTabPopupMenu" anchor="last"/>
+        </action>
+
+        <group id="contentcollector.GetContentAdvanced"
+               class="com.quetzalfir.contentcollector.GetContentAdvancedAction"
+               text="Get Content (Advanced)"
+               description="Dump selected files with filters"
+               popup="true">
+            <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
+            <add-to-group group-id="EditorTabPopupMenu"   anchor="last"/>
+        </group>
+    </actions>
+</idea-plugin>
