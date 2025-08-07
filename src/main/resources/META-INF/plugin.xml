@@ -2,6 +2,7 @@
     <id>com.quetzalfir.contentcollector</id>
     <name>Content Collector</name>
     <vendor email="quetzalfir2@gmail.com">Fernando Valencia</vendor>
+    <depends>com.intellij.modules.platform</depends>
 
     <description><![CDATA[
         Adds the actions <b>Get Content</b> and <b>Get Content&nbsp;(Advanced)</b>
