@@ -105,14 +105,14 @@ private object GitIgnoreCache {
         cache.getOrPut(project.basePath ?: "") { load(project) }
 
     private fun load(project: Project): Set<String> {
-        val root = VfsUtilCore.virtualToIoFile(project.baseDir)
-        val basePath = root.toPath()
+        val basePath = project.basePath ?: return emptySet()
+        val root = Paths.get(basePath).toFile()
         val patterns = mutableSetOf<String>()
 
         root.walkTopDown()
             .filter { it.name == ".gitignore" }
             .forEach { gitFile ->
-                val dirRel = basePath.relativize(gitFile.parentFile.toPath())
+                val dirRel = root.toPath().relativize(gitFile.parentFile.toPath())
                     .toString()
                     .replace('\\', '/')
                     .let { if (it.isEmpty()) "" else "$it/" }
@@ -121,7 +121,7 @@ private object GitIgnoreCache {
                     .map { it.trim() }
                     .filter { it.isNotEmpty() && !it.startsWith("#") }
                     .forEach { line ->
-                        // Prefija la ruta del .gitignore, excepto si la regla es absoluta
+                        // prefix rule with relative dir unless it’s absolute
                         patterns += if (line.startsWith("/")) {
                             line.removePrefix("/").replace('\\', '/')
                         } else {

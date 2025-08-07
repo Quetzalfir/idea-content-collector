@@ -3,6 +3,7 @@
     <name>Content Collector</name>
     <vendor email="quetzalfir2@gmail.com">Fernando Valencia</vendor>
     <depends>com.intellij.modules.platform</depends>
+    <idea-version since-build="243"/>
 
     <description><![CDATA[
         Adds the actions <b>Get Content</b> and <b>Get Content&nbsp;(Advanced)</b>
