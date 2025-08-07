@@ -7,6 +7,7 @@ import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.project.DumbAware
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextField
@@ -20,8 +21,7 @@ import javax.swing.event.ListSelectionEvent
 import javax.swing.event.ListSelectionListener
 
 /**
- * Grupo raíz «Get Content (Advanced)».
- * popup="true" se define en plugin.xml.
+ * Sub‑menú «Get Content (Advanced)».
  */
 class GetContentAdvancedAction : ActionGroup(), DumbAware {
 
@@ -30,21 +30,21 @@ class GetContentAdvancedAction : ActionGroup(), DumbAware {
             e.getData(CommonDataKeys.VIRTUAL_FILE_ARRAY)?.isNotEmpty() == true
     }
 
-    override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
+    override fun getActionUpdateThread() = ActionUpdateThread.BGT
 
     override fun getChildren(e: AnActionEvent?): Array<AnAction> {
         if (e == null) return emptyArray()
 
+        /* ---------- opción “Edit Configs…” ---------- */
         val editConfigs = object : AnAction("Edit Configs…"), DumbAware {
             override fun getActionUpdateThread() = ActionUpdateThread.BGT
             override fun actionPerformed(ev: AnActionEvent) {
-                OptionsDialog().showAndGet()
+                OptionsDialog(ev.project).showAndGet()
             }
         }
 
-        val separator = Separator.getInstance()
-
-        val presetActions = ConfigManager.list().map { entry ->
+        /* ---------- presets existentes ---------- */
+        val presets = ConfigManager.list().map { entry ->
             object : AnAction(entry.name, entry.desc, null), DumbAware {
                 override fun getActionUpdateThread() = ActionUpdateThread.BGT
                 override fun actionPerformed(ev: AnActionEvent) {
@@ -52,14 +52,8 @@ class GetContentAdvancedAction : ActionGroup(), DumbAware {
                     val out = StringBuilder()
                     val visited: MutableSet<String> = HashSet()
 
-                    val exts = entry.exts.split(',')
-                        .map { it.trim().removePrefix(".").lowercase() }
-                        .filter { it.isNotEmpty() }
-                        .toSet()
-
-                    val excl = entry.excl.split('\n')
-                        .map { it.trim() }
-                        .filter { it.isNotEmpty() }
+                    val exts = entry.exts.split(',').map { it.trim().removePrefix(".").lowercase() }.filter { it.isNotEmpty() }.toSet()
+                    val excl = entry.excl.split('\n').map { it.trim() }.filter { it.isNotEmpty() }
 
                     roots.forEach {
                         CollectionUtils.collect(
@@ -71,32 +65,27 @@ class GetContentAdvancedAction : ActionGroup(), DumbAware {
                         )
                     }
 
-                    CopyPasteManager.getInstance()
-                        .setContents(StringSelection(out.trimEnd('\n').toString()))
-
+                    CopyPasteManager.getInstance().setContents(StringSelection(out.trimEnd('\n').toString()))
                     NotificationGroupManager.getInstance()
                         .getNotificationGroup("contentcollector")
-                        .createNotification("Contenido copiado con «${entry.name}»",
-                            NotificationType.INFORMATION)
+                        .createNotification("Contenido copiado con «${entry.name}»", NotificationType.INFORMATION)
                         .notify(ev.project)
                 }
             }
         }
 
-        return (listOf(editConfigs, separator) + presetActions).toTypedArray()
+        return (listOf(editConfigs, Separator.getInstance()) + presets).toTypedArray()
     }
 
-    /* ---------------- diálogo de gestión de presets ------------------ */
-    private class OptionsDialog : DialogWrapper(true) {
+    /* ====================================================================== */
+    /* ===================  Diálogo de gestión de presets  ================== */
+    /* ====================================================================== */
+    /* ====================================================================== */
+    /* ===================  Diálogo de gestión de presets  ================== */
+    /* ====================================================================== */
+    private class OptionsDialog(private val project: Project?) : DialogWrapper(true) {
 
-        private val extField = JBTextField()
-        private val exclArea = JTextArea(4, 30).apply {
-            lineWrap = true; wrapStyleWord = true
-        }
-        private val nameField = JBTextField()
-        private val descField = JBTextField()
-        private val gitChk = JCheckBox("Use .gitignore patterns", true)
-
+        /* --------------- widgets y estado --------------- */
         private val listModel = DefaultListModel<ConfigManager.Entry>()
         private val list = JList(listModel).apply {
             cellRenderer = Renderer()
@@ -104,159 +93,223 @@ class GetContentAdvancedAction : ActionGroup(), DumbAware {
             addListSelectionListener(SelectionListener())
         }
 
+        private val nameField = JBTextField()
+        private val descField = JBTextField()
+        private val extField  = JBTextField()
+        private val exclArea  = JTextArea(4, 30).apply { lineWrap = true; wrapStyleWord = true }
+        private val gitChk    = JCheckBox("Use .gitignore patterns", true)
+
+        /** copia de la entrada mostrada ‑ sirve para detectar cambios */
+        private var original: ConfigManager.Entry? = null
+
         init {
             title = "Manage Get Content Presets"
+            okAction.putValue(Action.NAME, "Save")          // ← botón OK → “Save”
+            setOkState(false)                               // disabled hasta que haya cambios
+            addChangeTrackers()
             refreshList(null)
             init()
         }
 
+        /* ---------------- layout principal ---------------- */
         override fun createCenterPanel(): JComponent {
             val root = JPanel(BorderLayout(8, 8))
-            root.add(JBScrollPane(list), BorderLayout.WEST)
+            root.add(buildLeftPanel(), BorderLayout.WEST)
             root.add(buildEditorPanel(), BorderLayout.CENTER)
-            root.add(buildButtonsPanel(), BorderLayout.SOUTH)
             return root
         }
 
-        /* ---------------- editor ---------------- */
-        private fun buildEditorPanel(): JPanel {
-            val grid = JPanel(GridBagLayout())
-            val c = GridBagConstraints().apply {
-                fill = GridBagConstraints.HORIZONTAL
-                gridx = 0; gridy = 0; weightx = 0.0
+        /* ---------------- lógica de guardado ---------------- */
+        override fun doOKAction() {
+            val entry = currentEntry()
+
+            /* si el nombre cambió, borra el preset original antes de agregar */
+            if (original != null && original!!.name != entry.name) {
+                ConfigManager.remove(original!!.name)
             }
 
-            fun label(txt: String) = JLabel(txt).also { grid.add(it, c) }
-            fun nextRow() { c.gridx = 0; c.gridy++ }
+            ConfigManager.add(entry)        // actualiza o crea
+            original = entry.copy()          // nueva base para detectar cambios
+            setOkState(false)                // gris nuevamente
+            refreshList(entry.name)
+        }
 
-            label("Name:"); c.gridx = 1; c.weightx = 1.0; grid.add(nameField, c); nextRow()
-            label("Description:"); c.gridx = 1; grid.add(descField, c); nextRow()
-            label("Exts (e.g. .kt,.java):"); c.gridx = 1; grid.add(extField, c); nextRow()
-            label("Exclude paths (one per line):"); c.gridx = 1
-            grid.add(JBScrollPane(exclArea), c); nextRow()
-            c.gridx = 1; grid.add(gitChk, c); nextRow()
+        /* ============ panel izquierdo (lista + toolbar) ============ */
+        private fun buildLeftPanel(): JComponent {
+            val left = JPanel(BorderLayout())
+            left.add(JBScrollPane(list), BorderLayout.CENTER)
 
-            /* explorador de carpetas */
+            val bar = JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.X_AXIS)
+
+                /* + : nuevo preset vacío */
+                add(JButton("+").apply {
+                    addActionListener {
+                        val candidate = generateName()
+                        val e = ConfigManager.Entry(candidate, "", "", "", true)
+                        ConfigManager.add(e)
+                        refreshList(candidate)
+                        fillForm(e)
+                    }
+                })
+
+                /* – : borrar */
+                add(JButton("–").apply {
+                    addActionListener {
+                        list.selectedValue?.let {
+                            ConfigManager.remove(it.name)
+                            refreshList(null)
+                            clearForm()
+                        }
+                    }
+                })
+
+                /* ↗ export */
+                add(JButton("↗").apply {
+                    toolTipText = "Export preset to clipboard"
+                    addActionListener {
+                        list.selectedValue?.let {
+                            CopyPasteManager.getInstance().setContents(StringSelection(it.toJson()))
+                            notify("Preset «${it.name}» copied")
+                        }
+                    }
+                })
+
+                /* ↙ import */
+                add(JButton("↙").apply {
+                    toolTipText = "Import preset from clipboard"
+                    addActionListener {
+                        val txt = CopyPasteManager.getInstance().contents
+                            ?.getTransferData(java.awt.datatransfer.DataFlavor.stringFlavor)
+                            ?.toString() ?: return@addActionListener
+                        ConfigManager.Entry.fromJson(txt)?.let {
+                            ConfigManager.add(it)
+                            refreshList(it.name)
+                            fillForm(it)
+                            notify("Imported «${it.name}»")
+                        }
+                    }
+                })
+            }
+            left.add(bar, BorderLayout.NORTH)
+            return left
+        }
+
+        /* ============ editor central ============ */
+        private fun buildEditorPanel(): JPanel {
+            val g = JPanel(GridBagLayout())
+            val c = GridBagConstraints().apply { fill = GridBagConstraints.HORIZONTAL; gridx = 0; gridy = 0 }
+
+            fun row(label: String, comp: JComponent) {
+                g.add(JLabel(label), c)
+                c.gridx = 1; c.weightx = 1.0
+                g.add(comp, c)
+                c.gridx = 0; c.gridy++; c.weightx = 0.0
+            }
+
+            row("Name:", nameField)
+            row("Description:", descField)
+            row("Exts (e.g. .kt,.java):", extField)
+
+            g.add(JLabel("Exclude paths (one per line):"), c)
+            c.gridx = 1; g.add(JBScrollPane(exclArea), c); c.gridx = 0; c.gridy++
+
+            c.gridx = 1; g.add(gitChk, c); c.gridx = 0; c.gridy++
+
+            /* Browse… */
             c.gridx = 1
-            grid.add(JButton("Browse…").apply {
+            g.add(JButton("Browse…").apply {
                 addActionListener {
-                    val descriptor = FileChooserDescriptorFactory.createMultipleFoldersDescriptor()
+                    val descr = FileChooserDescriptorFactory.createMultipleFoldersDescriptor()
                         .apply { title = "Select Paths to Exclude" }
-                    FileChooser.chooseFiles(descriptor, null, null) { files ->
+                    FileChooser.chooseFiles(descr, project, null) { files ->
                         files.forEach {
-                            if (!exclArea.text.endsWith('\n') && exclArea.text.isNotEmpty())
-                                exclArea.append("\n")
-                            exclArea.append(it.path)
+                            val rel = project?.let { p -> CollectionUtils.absolutetoRel(p, it.path) } ?: it.path
+                            if (exclArea.text.isNotEmpty() && !exclArea.text.endsWith('\n')) exclArea.append("\n")
+                            exclArea.append(rel)
                         }
                     }
                 }
             }, c)
 
-            return grid
+            return g
         }
 
-        /* ---------------- botones inferiores ---------------- */
-        private fun buildButtonsPanel(): JPanel = JPanel().apply {
-            /* save */
-            add(JButton("+").apply {
-                addActionListener {
-                    val entry = ConfigManager.Entry(
-                        nameField.text.trim().ifBlank { "Unnamed" },
-                        extField.text.trim(),
-                        exclArea.text.trim(),
-                        descField.text.trim(),
-                        gitChk.isSelected
-                    )
-                    ConfigManager.add(entry)
-                    refreshList(entry.name)
-                }
-            })
-            /* delete */
-            add(JButton("–").apply {
-                addActionListener {
-                    val sel = list.selectedValue ?: return@addActionListener
-                    ConfigManager.remove(sel.name)
-                    refreshList(null)
-                }
-            })
-            /* export */
-            add(JButton("Export").apply {
-                addActionListener {
-                    val sel = list.selectedValue ?: return@addActionListener
-                    CopyPasteManager.getInstance().setContents(StringSelection(sel.toJson()))
-                    notify("Preset «${sel.name}» copied to clipboard")
-                }
-            })
-            /* import */
-            add(JButton("Import").apply {
-                addActionListener {
-                    val txt = CopyPasteManager.getInstance().contents
-                        ?.getTransferData(java.awt.datatransfer.DataFlavor.stringFlavor)
-                        ?.toString() ?: return@addActionListener
-                    ConfigManager.Entry.fromJson(txt)?.let {
-                        ConfigManager.add(it)
-                        refreshList(it.name)
-                        fillForm(it)
-                        notify("Imported preset «${it.name}»")
-                    }
-                }
-            })
+        /* -------------------- helpers -------------------- */
+        private fun generateName(): String {
+            val base = "Preset"
+            var idx = 1
+            var candidate = base
+            while (ConfigManager.list().any { it.name == candidate }) { idx++; candidate = "$base $idx" }
+            return candidate
         }
 
-        /* ---------------- helper funcs ---------------- */
+        private fun addChangeTrackers() {
+            val l: () -> Unit = { setOkState(original == null || currentEntry() != original) }
+            listOf(nameField, descField, extField).forEach { it.document.addDocumentListener(SimpleListener { l() }) }
+            exclArea.document.addDocumentListener(SimpleListener { l() })
+            gitChk.addChangeListener { l() }
+        }
+
+        private fun setOkState(enabled: Boolean) {
+            okAction.isEnabled = enabled
+        }
+
+        private fun currentEntry() = ConfigManager.Entry(
+            nameField.text.trim(),
+            extField.text.trim(),
+            exclArea.text.trim(),
+            descField.text.trim(),
+            gitChk.isSelected
+        )
+
         private fun refreshList(selectName: String?) {
-            listModel.clear()
+            listModel.removeAllElements()
             ConfigManager.list().forEach { listModel.addElement(it) }
             if (selectName != null) {
-                for (i in 0 until listModel.size) {
-                    if (listModel.get(i).name == selectName) {
-                        list.selectedIndex = i
-                        break
-                    }
-                }
+                (0 until listModel.size).firstOrNull { listModel[it].name == selectName }?.let { list.selectedIndex = it }
             } else list.clearSelection()
         }
 
         private fun fillForm(e: ConfigManager.Entry) {
+            original = e.copy()
             nameField.text = e.name
             descField.text = e.desc
-            extField.text = e.exts
-            exclArea.text = e.excl
+            extField.text  = e.exts
+            exclArea.text  = e.excl
             gitChk.isSelected = e.useGit
+            setOkState(false)
+        }
+
+        private fun clearForm() {
+            original = null
+            listOf(nameField, descField, extField).forEach { it.text = "" }
+            exclArea.text = ""
+            gitChk.isSelected = true
+            setOkState(false)
         }
 
         private fun notify(msg: String) =
             NotificationGroupManager.getInstance()
                 .getNotificationGroup("contentcollector")
                 .createNotification(msg, NotificationType.INFORMATION)
-                .notify(null)
+                .notify(project)
 
-        /* renderer con tooltip */
+        /* ---- renderer y listeners auxiliares ---- */
         private class Renderer : DefaultListCellRenderer() {
-            override fun getListCellRendererComponent(
-                list: JList<*>,
-                value: Any?,
-                index: Int,
-                isSelected: Boolean,
-                cellHasFocus: Boolean
-            ): java.awt.Component {
-                val c = super.getListCellRendererComponent(
-                    list,
-                    (value as? ConfigManager.Entry)?.name ?: "",
-                    index,
-                    isSelected,
-                    cellHasFocus
-                )
+            override fun getListCellRendererComponent(list: JList<*>, value: Any?, index: Int, isSelected: Boolean, cellHasFocus: Boolean): java.awt.Component {
+                val c = super.getListCellRendererComponent(list, (value as? ConfigManager.Entry)?.name ?: "", index, isSelected, cellHasFocus)
                 toolTipText = (value as? ConfigManager.Entry)?.desc
                 return c
             }
         }
-
         private inner class SelectionListener : ListSelectionListener {
-            override fun valueChanged(e: ListSelectionEvent) {
-                if (e.valueIsAdjusting) return
-                list.selectedValue?.let { fillForm(it) }
-            }
+            override fun valueChanged(e: ListSelectionEvent) { if (!e.valueIsAdjusting) list.selectedValue?.let { fillForm(it) } }
+        }
+        private class SimpleListener(private val run: () -> Unit) : javax.swing.event.DocumentListener {
+            override fun insertUpdate(e: javax.swing.event.DocumentEvent) = run()
+            override fun removeUpdate(e: javax.swing.event.DocumentEvent) = run()
+            override fun changedUpdate(e: javax.swing.event.DocumentEvent) = run()
         }
     }
 }

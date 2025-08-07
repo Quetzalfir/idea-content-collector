@@ -4,11 +4,11 @@
     <vendor email="quetzalfir2@gmail.com">Fernando Valencia</vendor>
 
     <description><![CDATA[
-    Añade las acciones <b>Get Content</b> y <b>Get Content (Advanced)</b>
-    para copiar el contenido de archivos/carpetas al portapapeles.
-  ]]></description>
+        Adds the actions <b>Get Content</b> and <b>Get Content&nbsp;(Advanced)</b>
+        that copy the full text of the selected files / folders to the clipboard.
+    ]]></description>
 
-    <!-- Declarar el Notification Group de forma moderna -->
+    <!-- Modern declaration of the Notification Group -->
     <extensions defaultExtensionNs="com.intellij">
         <notificationGroup
                 id="contentcollector"
@@ -17,6 +17,7 @@
     </extensions>
 
     <actions>
+        <!-- Quick one-off dump -->
         <action id="contentcollector.GetContent"
                 class="com.quetzalfir.contentcollector.GetContentAction"
                 text="Get Content"
@@ -25,6 +26,7 @@
             <add-to-group group-id="EditorTabPopupMenu" anchor="last"/>
         </action>
 
+        <!-- Preset-driven dump -->
         <group id="contentcollector.GetContentAdvanced"
                class="com.quetzalfir.contentcollector.GetContentAdvancedAction"
                text="Get Content (Advanced)"
@@ -33,5 +35,17 @@
             <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
             <add-to-group group-id="EditorTabPopupMenu"   anchor="last"/>
         </group>
+
+        <!-- Visual separator after the plugin’s items -->
+        <action id="contentcollector.EndSeparator"
+                class="com.intellij.openapi.actionSystem.Separator">
+            <add-to-group group-id="ProjectViewPopupMenu"
+                          anchor="after"
+                          relative-to-action="contentcollector.GetContentAdvanced"/>
+            <add-to-group group-id="EditorTabPopupMenu"
+                          anchor="after"
+                          relative-to-action="contentcollector.GetContentAdvanced"/>
+        </action>
     </actions>
+
 </idea-plugin>

@@ -3,4 +3,5 @@
 .intellijPlatform
 .kotlin
 .qodana
+.github
 build
